@@ -114,6 +114,8 @@ def visualise_superquadrics(superquadric_params, reference_model, save_path=None
     exponents = superquadric_params[..., 6:8]
     scene = trimesh.Scene()
     if reference_model is not None:
+        if isinstance(reference_model, trimesh.points.PointCloud):
+            reference_model.colors = [[0, 0, 255, 255]] * len(reference_model.vertices)
         scene.add_geometry(reference_model)
     for center, scale, exponent in zip(centers, scales, exponents):
         # Create a superquadric mesh
@@ -125,19 +127,6 @@ def visualise_superquadrics(superquadric_params, reference_model, save_path=None
         scene.add_geometry(superquadric)
     if save_path is not None:
         scene.export(save_path)
-    scene.show()
-
-
-def visualise_sdf(points, values):
-    """Visualise the SDF values as a point cloud."""
-    # Use trimesh to create a point cloud from the SDF values
-    inside_points = points[values < 0]
-    outside_points = points[values > 0]
-    inside_points = trimesh.points.PointCloud(inside_points, colors=[[0, 0, 255, 255]])  
-    outside_points = trimesh.points.PointCloud(outside_points, colors=[[255, 0, 0, 255]])  
-
-    scene = trimesh.Scene()
-    scene.add_geometry([inside_points, outside_points])
     scene.show()
 
 
@@ -199,7 +188,9 @@ def main():
                 superquadric_params, reference_model=pcd_model, 
                 save_path=os.path.join(output_dir, f"{obj_name}_superquadrics.obj")
             )
+
             print(f"Finished processing {obj_name}. Results saved in {output_dir}.")
+            
         
         except Exception as e:
             print(f"Error processing {obj_name}: {e}")
