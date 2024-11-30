@@ -133,71 +133,76 @@ def visualise_sdf(points, values):
     # Use trimesh to create a point cloud from the SDF values
     inside_points = points[values < 0]
     outside_points = points[values > 0]
-    inside_points = trimesh.points.PointCloud(inside_points)
-    outside_points = trimesh.points.PointCloud(outside_points)
-    inside_points.colors = [0, 0, 1, 1]  # Blue color for inside points
-    outside_points.colors = [1, 0, 0, 1]  # Red color for outside points
+    inside_points = trimesh.points.PointCloud(inside_points, colors=[[0, 0, 255, 255]])  
+    outside_points = trimesh.points.PointCloud(outside_points, colors=[[255, 0, 0, 255]])  
+
     scene = trimesh.Scene()
     scene.add_geometry([inside_points, outside_points])
     scene.show()
 
 
 def main():
-    dataset_path = "./data"
-    name = "shiba"
-
-    mesh_model = trimesh.load(os.path.join(dataset_path, f"{name}_model.obj"))
-    pcd_model = trimesh.load(
-        os.path.join(dataset_path, f"{name}_surface_pointcloud.ply")
-    )
-    points, values = (
-        np.load(f"data/{name}.npz")["points"],
-        np.load(f"data/{name}.npz")["values"],
-    )
+    dataset_root_path = "./reference_models_processed"  # New root directory for datasets
+    object_names = ["dog", "hand", "pot", "rod", "sofa"]  # Names of the objects
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    points = torch.from_numpy(points).float().to(device)
-    values = torch.from_numpy(values).float().to(device)
-    surface_pointcloud = torch.from_numpy(pcd_model.vertices).float().to(device)
+    num_epochs = 1000
 
-    model = SQNet(num_superquadrics=256).to(device)
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.0005)
-
-    num_epochs = 500
-    for i in range(num_epochs):
-        optimizer.zero_grad()
-        superquadric_sdf, superquadric_params = model(
-            surface_pointcloud.unsqueeze(0).transpose(2, 1), points
-        )
-        ### Explain why the following line is necessary and what does it do###
-        superquadric_sdf = bsmin(superquadric_sdf, dim=-1).to(device)
-        ### End of explanation ###
+    for obj_name in object_names:
+        print(f"Processing object: {obj_name}")
         
-        # Explanation:
-        # The bsmin function performs a smooth minimum over the superquadric SDFs.
-        # This is necessary to combine multiple superquadrics into a single SDF representation.
-        # It ensures that the overall SDF smoothly approximates the union of all superquadrics.
+        object_path = os.path.join(dataset_root_path, obj_name)
+        try:
+            # Load mesh model and point cloud
+            mesh_model = trimesh.load(os.path.join(object_path, f"{obj_name}.obj"))
+            pcd_model = trimesh.load(os.path.join(object_path, "surface_points.ply"))
+            
+            # Load point and SDF values
+            data_npz = np.load(os.path.join(object_path, "voxel_and_sdf.npz"))
+            points, values = data_npz["sdf_points"], data_npz["sdf_values"]
+            
+            # Convert to torch tensors
+            points = torch.from_numpy(points).float().to(device)
+            values = torch.from_numpy(values).float().to(device)
+            surface_pointcloud = torch.from_numpy(pcd_model.vertices).float().to(device)
+            
+            # Initialize model and optimizer
+            model = SQNet(num_superquadrics=256).to(device)
+            optimizer = torch.optim.Adam(model.parameters(), lr=0.0005)
+            
+            # Training loop
+            for epoch in range(num_epochs):
+                optimizer.zero_grad()
+                superquadric_sdf, superquadric_params = model(
+                    surface_pointcloud.unsqueeze(0).transpose(2, 1), points
+                )
+                # Smooth minimum to combine SDFs
+                superquadric_sdf = bsmin(superquadric_sdf, dim=-1).to(device)
+                
+                # Loss function: Mean squared error
+                mseloss = torch.mean((superquadric_sdf - values) ** 2)
+                loss = mseloss
+                
+                loss.backward()
+                optimizer.step()
+                
+                if epoch % 100 == 0:  # Print every 50 epochs
+                    print(f"[{obj_name}] Epoch {epoch}, Loss: {loss.item()}")
 
-        ### Determine the loss function to train the model, i.e. the mean squared error between gt sdf field and predicted sdf field. ###
-        mseloss = torch.mean((superquadric_sdf - values) ** 2)
+            # Save the results
+            output_dir = os.path.join("./output", obj_name)
+            os.makedirs(output_dir, exist_ok=True)
+            superquadric_params_np = superquadric_params.cpu().detach().numpy()
+            np.save(os.path.join(output_dir, f"{obj_name}_superquadric_params.npy"), superquadric_params_np)
+            
+            # Visualize superquadrics
+            visualise_superquadrics(
+                superquadric_params, reference_model=pcd_model, 
+                save_path=os.path.join(output_dir, f"{obj_name}_superquadrics.obj")
+            )
+            print(f"Finished processing {obj_name}. Results saved in {output_dir}.")
         
-        ### Bonus: Additional losses for better performance ###
-        # Total loss
-        loss = mseloss 
-        ### End of your code ###
-
-        loss.backward()
-        optimizer.step()
-        print(f"Iteration {i}, Loss: {loss.item()}")
-
-    output_dir = "./output"
-    os.makedirs(output_dir, exist_ok=True)
-
-    np.save(os.path.join(output_dir, f"{name}_superquadric_params.npy"), superquadric_params.cpu().detach().numpy())
-
-    print(superquadric_params)
-
-    visualise_superquadrics(superquadric_params, reference_model=pcd_model, save_path=os.path.join(output_dir, f"{name}_superquadrics.obj"))
-
+        except Exception as e:
+            print(f"Error processing {obj_name}: {e}")
 
 if __name__ == "__main__":
     main()
