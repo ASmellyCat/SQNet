@@ -1,3 +1,7 @@
+# Configuration
+NUM_SUPERQUADRICS = 1  # Number of superquadrics
+NUM_EPOCHS = 800  # Number of training epochs
+
 # sq.py
 
 import torch
@@ -123,7 +127,6 @@ def determine_superquadric_sdf(query_points, superquadric_params):
     return sdf  # Shape: (N, K)
 
 
-
 class Decoder(nn.Module):
     """
     Decoder network that maps encoded features to superquadric parameters.
@@ -134,7 +137,7 @@ class Decoder(nn.Module):
     - 3 for size (alpha1, alpha2, alpha3)
     - 2 for shape (epsilon1, epsilon2)
     """
-    def __init__(self, num_superquadrics=12):
+    def __init__(self, num_superquadrics=NUM_SUPERQUADRICS):
         super(Decoder, self).__init__()
         in_ch = 256
         out_ch = num_superquadrics * 11  # 11 parameters per superquadric
@@ -191,7 +194,7 @@ class SQNet(nn.Module):
     - An encoder (DGCNNFeat) that processes surface point clouds.
     - A decoder that predicts superquadric parameters.
     """
-    def __init__(self, num_superquadrics=12):
+    def __init__(self, num_superquadrics=NUM_SUPERQUADRICS):
         super(SQNet, self).__init__()
         self.num_superquadrics = num_superquadrics
         self.encoder = DGCNNFeat(global_feat=True)
@@ -225,16 +228,16 @@ class SQNet(nn.Module):
         translation_scale = torch.tensor([1.0, 1.0, 1.0], device=superquadric_params.device).view(1, 1, 3)
 
         # Rotation: Euler angles scaled to [-pi, pi]
-        rotation_shift = torch.tensor([-np.pi, -np.pi, -np.pi], device=superquadric_params.device).view(1, 1, 3)
-        rotation_scale = torch.tensor([2 * np.pi, 2 * np.pi, 2 * np.pi], device=superquadric_params.device).view(1, 1, 3)
+        rotation_shift = torch.tensor([-2*np.pi, -2*np.pi, -2*np.pi], device=superquadric_params.device).view(1, 1, 3)
+        rotation_scale = torch.tensor([4*np.pi, 4*np.pi, 4*np.pi], device=superquadric_params.device).view(1, 1, 3)
 
         # Size: Scale to [0.1, 0.5] for each axis
         size_shift = torch.tensor([0.1, 0.1, 0.1], device=superquadric_params.device).view(1, 1, 3)
-        size_scale = torch.tensor([0.4, 0.4, 0.4], device=superquadric_params.device).view(1, 1, 3)
+        size_scale = torch.tensor([0.4, 0.4, 1.2], device=superquadric_params.device).view(1, 1, 3)
 
         # Shape: Scale to [0.2, 1.0] for each exponent
-        shape_shift = torch.tensor([0.2, 0.2], device=superquadric_params.device).view(1, 1, 2)
-        shape_scale = torch.tensor([0.8, 0.8], device=superquadric_params.device).view(1, 1, 2)
+        shape_shift = torch.tensor([1.0, 1.0], device=superquadric_params.device).view(1, 1, 2)
+        shape_scale = torch.tensor([2.0, 2.0], device=superquadric_params.device).view(1, 1, 2)
 
         # Apply scaling and shifting to obtain final parameters
         translations = superquadric_params[:, :, 0:3] * translation_scale + translation_shift  # Shape: (batch_size, K, 3)
@@ -315,8 +318,6 @@ def visualise_superquadrics(superquadric_params, reference_model, save_path=None
     scene.show()
 
 
-
-
 def main():
     """
     Main function to train the SQNet model on multiple objects and visualize the resulting superquadrics.
@@ -331,9 +332,8 @@ def main():
     """
     dataset_root_path = "./reference_models_processed"  # Root directory for the dataset
     # object_names = ["dog", "hand", "pot", "rod", "sofa"]  # List of object names to process
-    object_names = ["dog"]
+    object_names = ["rod"]
     device = "cuda" if torch.cuda.is_available() else "cpu"  # Use GPU if available
-    num_epochs = 2000  # Number of training epochs
 
     for obj_name in object_names:
         print(f"Processing object: {obj_name}")
@@ -369,13 +369,13 @@ def main():
                 print(f"Points shape is already correct: {points.shape}")
             
             # Initialize the SQNet model and move it to the specified device
-            model = SQNet(num_superquadrics=12).to(device)
+            model = SQNet(num_superquadrics=NUM_SUPERQUADRICS).to(device)
 
             # Initialize the Adam optimizer with a learning rate of 0.0005
             optimizer = torch.optim.Adam(model.parameters(), lr=0.0005)
 
             # Training loop
-            for epoch in range(num_epochs):
+            for epoch in range(NUM_EPOCHS):
                 optimizer.zero_grad()  # Reset gradients
 
                 # Forward pass: compute SDF values and superquadric parameters

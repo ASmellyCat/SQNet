@@ -8,11 +8,12 @@ from dgcnn import DGCNNFeat
 # ===========================
 # Modifiable Hyperparameters
 # ===========================
-num_epochs = 500
-num_cuboids = 6
+num_epochs = 1000
+num_cuboids = 4
 learning_rate = 0.0005
 dataset_root_path = "./reference_models_processed"  # Root directory for the dataset
-object_names = ["dog"]  # List of object names to process
+# object_names = ["dog", "hand", "pot", "rod", "sofa"]  # List of object names to process
+object_names = [ "sofa"]
 output_dir = "./output"
 # ===========================
 
@@ -153,8 +154,8 @@ class CuboidNet(nn.Module):
 
         # Process positions
         cuboid_centers = torch.sigmoid(cuboid_params[:, :3])
-        center_adder = torch.tensor([-0.5, -0.5, -0.5]).to(cuboid_centers.device)
-        center_multiplier = torch.tensor([1.0, 1.0, 1.0]).to(cuboid_centers.device)
+        center_adder = torch.tensor([-1.0, -1.0, -1.0]).to(cuboid_centers.device)
+        center_multiplier = torch.tensor([2.0, 2.0, 2.0]).to(cuboid_centers.device)
         cuboid_centers = cuboid_centers * center_multiplier + center_adder
 
         # Process quaternions
@@ -164,7 +165,7 @@ class CuboidNet(nn.Module):
         # Process dimensions
         cuboid_dimensions = torch.sigmoid(cuboid_params[:, 7:])
         dimension_adder = torch.tensor([0.1, 0.1, 0.1]).to(cuboid_dimensions.device)
-        dimension_multiplier = torch.tensor([0.4, 0.4, 0.4]).to(cuboid_dimensions.device)
+        dimension_multiplier = torch.tensor([2.0, 2.0, 2.0]).to(cuboid_dimensions.device)
         cuboid_dimensions = cuboid_dimensions * dimension_multiplier + dimension_adder
 
         # Combine processed parameters
@@ -190,20 +191,22 @@ def visualise_cuboids(cuboid_params, reference_model, save_path=None):
 
     # Define a list of distinct colors (RGBA)
     colors = [
-        [255, 0, 0, 255],    # Red
-        [0, 255, 0, 255],    # Green
-        [0, 0, 255, 255],    # Blue
-        [255, 255, 0, 255],  # Yellow
-        [0, 255, 255, 255],  # Cyan
-        [255, 0, 255, 255],  # Magenta
-        [255, 165, 0, 255],  # Orange
-        [128, 0, 128, 255],  # Purple
-        [0, 128, 128, 255],  # Teal
+        [179, 0, 30, 255],    # Red
+        [179, 255, 25, 255],    # Green
+        [255, 224, 58, 255],  # Yellow
+        [128, 170, 255, 255],  # Cyan
+        [255, 102, 255, 255],  # Magenta
+        [255, 119, 51, 255],  # Orange
+        [196, 77, 255, 255],  # Purple
+        [179, 242, 255, 255],  # Teal
         [128, 128, 0, 255],  # Olive
     ]
 
     scene = trimesh.Scene()
     if reference_model is not None:
+        if isinstance(reference_model, trimesh.points.PointCloud):
+            # Assign a blue color to the reference point cloud
+            reference_model.colors = [[219, 204, 188, 255]] * len(reference_model.vertices)
         scene.add_geometry(reference_model)
 
     for i, (center, quaternion, dimensions) in enumerate(zip(cuboid_centers, cuboid_quaternions, cuboid_dimensions)):
@@ -220,19 +223,6 @@ def visualise_cuboids(cuboid_params, reference_model, save_path=None):
 
     if save_path is not None:
         scene.export(save_path)
-    scene.show()
-
-def visualise_sdf(points, values):
-    """Visualise the SDF values as a point cloud."""
-    # Use trimesh to create a point cloud from the SDF values
-    inside_points = points[values < 0]
-    outside_points = points[values > 0]
-    inside_points = trimesh.points.PointCloud(inside_points)
-    outside_points = trimesh.points.PointCloud(outside_points)
-    inside_points.colors = [0, 0, 1, 255]  # Blue color for inside points
-    outside_points.colors = [255, 0, 0, 255]  # Red color for outside points
-    scene = trimesh.Scene()
-    scene.add_geometry([inside_points, outside_points])
     scene.show()
 
 def main():
@@ -272,10 +262,13 @@ def main():
 
             # Loss function: Mean squared error between predicted SDF and ground truth
             mseloss = torch.mean((cuboid_sdf - values) ** 2)
+            cuboid_quaternions = cuboid_params[:, 3:7]
+            rotation_loss = torch.mean(torch.abs(cuboid_quaternions[:, 1:]))  
+            
 
             # Optional: You can add additional regularization losses here
 
-            loss = mseloss
+            loss = mseloss + 0.1 * rotation_loss
             loss.backward()
             optimizer.step()
 
