@@ -1,5 +1,3 @@
-# sq.py
-
 import torch
 import numpy as np
 import torch.nn as nn
@@ -8,6 +6,8 @@ import traceback
 import trimesh
 from dgcnn import DGCNNFeat
 from scipy.spatial.transform import Rotation as R
+import torch.nn.functional as F
+
 
 
 def bsmin(a, dim, k=22.0, keepdim=False):
@@ -65,7 +65,6 @@ def determine_superquadric_sdf(query_points, superquadric_params):
 
     # Compute difference vectors
     diff = query_points_expanded - translations_expanded  # Shape: (N, K, 3)
-    # print(f"diff shape: {diff.shape}")  # Expected: (N, K, 3)
 
     # Generate rotation matrices from Euler angles
     angles = rotations_expanded  # Shape: (N, K, 3)
@@ -99,29 +98,34 @@ def determine_superquadric_sdf(query_points, superquadric_params):
 
     # Combine rotation matrices: R = Rz * Ry * Rx
     R_matrix = torch.bmm(R_z, torch.bmm(R_y, R_x))  # Shape: (N * K, 3, 3)
-    # print(f"R_matrix shape: {R_matrix.shape}")  # Shape: (N * K, 3, 3)
+
     # Reshape diff for batch matrix multiplication
-    diff = diff.view(-1, 3, 1)  # Shape: (N * K, 3, 3)
-    # print(f"diff reshaped shape: {diff.shape}")  # Shape: (N * K, 3, 3)
+    diff = diff.view(-1, 3, 1)  # Shape: (N * K, 3, 1)
 
     # Apply rotation: R * diff
     diff_rotated = torch.bmm(R_matrix, diff).view(N, K, 3)  # Shape: (N, K, 3)
-    # print(f"diff_rotated shape: {diff_rotated.shape}")  # Shape: (N, K, 3)
 
     # Normalize by sizes
     norm_diff = diff_rotated / sizes_expanded  # Shape: (N, K, 3)
     abs_diff = torch.abs(norm_diff) + 1e-6     # Shape: (N, K, 3)
-    # print(f"norm_diff shape: {norm_diff.shape}")  # Shape: (N, K, 3)
-    # print(f"abs_diff shape: {abs_diff.shape}")    # Shape: (N, K, 3)
+
     # Compute SDF based on superquadric implicit function
-    term1 = (abs_diff[..., 0] ** (2 / exponents_expanded[..., 1])) + \
-            (abs_diff[..., 1] ** (2 / exponents_expanded[..., 1])) + \
-            (abs_diff[..., 2] ** (2 / exponents_expanded[..., 1]))
-    sdf = (term1 ** (exponents_expanded[..., 0] / 2) - 1) * torch.min(sizes_expanded, dim=-1)[0]
-    # print(f"sdf shape: {sdf.shape}")  # Shape: (N, K)
+    # Adjusted to handle exponents approaching zero
+    epsilon1 = exponents_expanded[..., 0]
+    epsilon2 = exponents_expanded[..., 1]
+    # Avoid division by zero
+    epsilon1 = torch.clamp(epsilon1, min=1e-4)
+    epsilon2 = torch.clamp(epsilon2, min=1e-4)
+
+    term1 = (abs_diff[..., 0] ** (2 / epsilon2)) + \
+            (abs_diff[..., 1] ** (2 / epsilon2))
+    term2 = (term1 ** (epsilon2 / epsilon1)) + \
+            (abs_diff[..., 2] ** (2 / epsilon1))
+
+    inside = term2 ** (epsilon1 / 2)
+    sdf = (inside - 1) * torch.min(sizes_expanded, dim=-1)[0]
 
     return sdf  # Shape: (N, K)
-
 
 
 class Decoder(nn.Module):
@@ -232,9 +236,9 @@ class SQNet(nn.Module):
         size_shift = torch.tensor([0.1, 0.1, 0.1], device=superquadric_params.device).view(1, 1, 3)
         size_scale = torch.tensor([0.4, 0.4, 0.4], device=superquadric_params.device).view(1, 1, 3)
 
-        # Shape: Scale to [0.2, 1.0] for each exponent
-        shape_shift = torch.tensor([0.2, 0.2], device=superquadric_params.device).view(1, 1, 2)
-        shape_scale = torch.tensor([0.8, 0.8], device=superquadric_params.device).view(1, 1, 2)
+        # Shape: Scale to [0.01, 1.0] for each exponent (allowing sharper edges)
+        shape_shift = torch.tensor([0.01, 0.01], device=superquadric_params.device).view(1, 1, 2)
+        shape_scale = torch.tensor([0.99, 0.99], device=superquadric_params.device).view(1, 1, 2)
 
         # Apply scaling and shifting to obtain final parameters
         translations = superquadric_params[:, :, 0:3] * translation_scale + translation_shift  # Shape: (batch_size, K, 3)
@@ -278,34 +282,21 @@ def visualise_superquadrics(superquadric_params, reference_model, save_path=None
             reference_model.colors = [[0, 0, 255, 255]] * len(reference_model.vertices)
         scene.add_geometry(reference_model)
 
+    # Assuming batch_size = 1
     translations = translations[0]  # Shape: (K, 3)
     rotations = rotations[0]        # Shape: (K, 3)
     sizes = sizes[0]                # Shape: (K, 3)
+    exponents = exponents[0]        # Shape: (K, 2)
 
     # Iterate over each superquadric to create and add its mesh to the scene
-    for i, (translation, rotation, size) in enumerate(zip(translations, rotations, sizes)):
-        # Create an icosphere as an approximation of the superquadric surface
-        superquadric = trimesh.creation.icosphere(subdivisions=3, radius=1.0)
-
-        # Scale the icosphere based on the superquadric's size parameters
-        superquadric.apply_scale(size)  # size: [3]
-
-        # Generate rotation matrix from Euler angles
-        rot = R.from_euler('xyz', rotation)  # Assuming 'xyz' rotation order
-        rotation_matrix = rot.as_matrix()
-
-        # Create a 4x4 transformation matrix
-        transform_matrix = np.eye(4)
-        transform_matrix[:3, :3] = rotation_matrix
-
-        # Apply rotation to the superquadric mesh
-        superquadric.apply_transform(transform_matrix)
-
-        # Translate the superquadric mesh to its position in the scene
-        superquadric.apply_translation(translation)
-
+    for i, (translation, rotation, size, exponent) in enumerate(zip(translations, rotations, sizes, exponents)):
+        # Generate the superquadric mesh
+        superquadric_mesh = create_superquadric_mesh(size, exponent, rotation, translation)
+        # Assign a random color to each superquadric for better visualization
+        color = np.random.randint(0, 255, size=3).tolist() + [255]  # RGB + Alpha
+        superquadric_mesh.visual.face_colors = color
         # Add the transformed superquadric mesh to the scene
-        scene.add_geometry(superquadric)
+        scene.add_geometry(superquadric_mesh)
 
     # Save the visualization to a file if a save path is provided
     if save_path is not None:
@@ -315,25 +306,122 @@ def visualise_superquadrics(superquadric_params, reference_model, save_path=None
     scene.show()
 
 
+def create_superquadric_mesh(size, exponent, rotation, translation, num_u=50, num_v=50):
+    """
+    Create a superquadric mesh given the parameters.
 
+    Args:
+        size (array-like): Size parameters [a1, a2, a3].
+        exponent (array-like): Shape exponents [epsilon1, epsilon2].
+        rotation (array-like): Euler angles for rotation [rx, ry, rz].
+        translation (array-like): Translation vector [tx, ty, tz].
+        num_u (int): Number of samples in the u-direction.
+        num_v (int): Number of samples in the v-direction.
+
+    Returns:
+        trimesh.Trimesh: The mesh of the superquadric.
+    """
+    a1, a2, a3 = size
+    epsilon1, epsilon2 = exponent
+
+    # Create a grid in parameter space
+    u = np.linspace(-np.pi / 2, np.pi / 2, num_u)
+    v = np.linspace(-np.pi, np.pi, num_v)
+    u, v = np.meshgrid(u, v)
+
+    # Compute the superquadric surface
+    cos_u = np.cos(u)
+    cos_v = np.cos(v)
+    sin_u = np.sin(u)
+    sin_v = np.sin(v)
+
+    # Compute the superquadric functions
+    fu = np.sign(cos_u) * (np.abs(cos_u) ** epsilon1)
+    fv = np.sign(cos_v) * (np.abs(cos_v) ** epsilon2)
+    gu = np.sign(sin_u) * (np.abs(sin_u) ** epsilon1)
+    gv = np.sign(sin_v) * (np.abs(sin_v) ** epsilon2)
+
+    # Compute coordinates
+    x = a1 * fu * fv
+    y = a2 * gu * fv
+    z = a3 * gu * gv
+
+    # Flatten the arrays
+    x = x.flatten()
+    y = y.flatten()
+    z = z.flatten()
+
+    # Stack into vertices
+    vertices = np.vstack((x, y, z)).T
+
+    # Create faces
+    faces = []
+    for i in range(num_u - 1):
+        for j in range(num_v - 1):
+            idx = i * num_v + j
+            faces.append([idx, idx + num_v, idx + num_v + 1])
+            faces.append([idx, idx + num_v + 1, idx + 1])
+
+    # Convert to numpy array
+    faces = np.array(faces)
+
+    # Create the mesh
+    mesh = trimesh.Trimesh(vertices=vertices, faces=faces, process=False)
+
+    # Generate rotation matrix from Euler angles
+    rot = R.from_euler('xyz', rotation)
+    rotation_matrix = rot.as_matrix()  # Shape: (3, 3)
+
+    # Create a 4x4 transformation matrix
+    transform_matrix = np.eye(4)
+    transform_matrix[:3, :3] = rotation_matrix
+    transform_matrix[:3, 3] = translation
+
+    # Apply the 4x4 transformation matrix to the mesh
+    mesh.apply_transform(transform_matrix)
+
+    return mesh
+
+
+def compute_overlap_loss(superquadric_params):
+    """
+    Compute the overlap loss to minimize overlapping between superquadrics.
+
+    Args:
+        superquadric_params (torch.Tensor): Superquadric parameters. Shape: (batch_size, K, 11)
+
+    Returns:
+        torch.Tensor: Scalar tensor representing the overlap loss.
+    """
+    translations = superquadric_params[:, :, :3]  # Shape: (batch_size, K, 3)
+    sizes = superquadric_params[:, :, 6:9]        # Shape: (batch_size, K, 3)
+
+    batch_size, K, _ = translations.shape
+    overlap_loss = 0.0
+
+    for b in range(batch_size):
+        for i in range(K):
+            for j in range(i + 1, K):
+                center_distance = torch.norm(translations[b, i] - translations[b, j])
+                size_i = torch.max(sizes[b, i])
+                size_j = torch.max(sizes[b, j])
+                min_distance = size_i + size_j
+                # If centers are closer than the sum of sizes, there's an overlap
+                overlap = F.relu(min_distance - center_distance)
+                overlap_loss += overlap
+
+    # Normalize the overlap loss
+    overlap_loss = overlap_loss / (batch_size * K * (K - 1) / 2)
+    return overlap_loss
 
 def main():
     """
     Main function to train the SQNet model on multiple objects and visualize the resulting superquadrics.
-
-    The function performs the following steps for each object:
-    1. Load the mesh model and surface point cloud.
-    2. Load query points and their corresponding SDF values.
-    3. Initialize the SQNet model and optimizer.
-    4. Train the model for a specified number of epochs.
-    5. Save the learned superquadric parameters.
-    6. Visualize the superquadrics in the scene.
     """
     dataset_root_path = "./reference_models_processed"  # Root directory for the dataset
-    # object_names = ["dog", "hand", "pot", "rod", "sofa"]  # List of object names to process
-    object_names = ["dog"]
+    object_names = ["dog"]  # List of object names to process
     device = "cuda" if torch.cuda.is_available() else "cpu"  # Use GPU if available
-    num_epochs = 2000  # Number of training epochs
+    num_epochs = 400  # Number of training epochs
 
     for obj_name in object_names:
         print(f"Processing object: {obj_name}")
@@ -356,7 +444,7 @@ def main():
             points, values = data_npz["sdf_points"], data_npz["sdf_values"]
             
             # Convert the loaded data to PyTorch tensors and move them to the specified device
-            points = torch.from_numpy(points).float().to(device)            # Shape: [N, 3] 或 [1, N, 3]
+            points = torch.from_numpy(points).float().to(device)            # Shape: [N, 3] or [1, N, 3]
             values = torch.from_numpy(values).float().to(device)            # Shape: [N,]
             surface_pointcloud = torch.from_numpy(pcd_model.vertices).float().to(device)  # Shape: [num_points, 3]
             
@@ -384,11 +472,22 @@ def main():
                 )  # surface_pointcloud shape: [1, 3, num_points], points shape: [N, 3]
 
                 # Combine multiple SDFs using a smooth minimum function along the superquadrics dimension
-                superquadric_sdf = bsmin(superquadric_sdf, dim=-1).to(device)  # Shape: [N,]
+                superquadric_sdf_combined = bsmin(superquadric_sdf, dim=-1).to(device)  # Shape: [N,]
 
                 # Compute Mean Squared Error (MSE) loss between predicted SDFs and ground truth values
-                mseloss = torch.mean((superquadric_sdf - values) ** 2)
-                loss = mseloss
+                sdf_loss = torch.mean((superquadric_sdf_combined - values) ** 2)
+
+                # Shape regularization loss
+                shape_regularization = torch.mean(1.0 / (superquadric_params[:, :, 9:11] + 1e-6))
+
+                # Overlap loss
+                overlap_loss = compute_overlap_loss(superquadric_params)
+
+                # Sparsity loss
+                sparsity_loss = torch.mean(torch.exp(-torch.sum(superquadric_params[:, :, 6:9], dim=2)))
+
+                # Total loss with weighted additional losses
+                loss = sdf_loss + 0.1 * shape_regularization + 0.1 * overlap_loss + 0.1 * sparsity_loss
 
                 # Backward pass: compute gradients
                 loss.backward()
@@ -396,15 +495,16 @@ def main():
                 # Update model parameters
                 optimizer.step()
 
-                # Print loss every 100 epochs
+                # Print loss every 50 epochs
                 if epoch % 50 == 0:
-                    print(f"[{obj_name}] Epoch {epoch}, Loss: {loss.item()}")
+                    print(f"[{obj_name}] Epoch {epoch}, Loss: {loss.item()}, "
+                          f"SDF Loss: {sdf_loss.item()}, Shape Reg: {shape_regularization.item()}, "
+                          f"Overlap Loss: {overlap_loss.item()}, Sparsity Loss: {sparsity_loss.item()}")
 
             # Save the learned superquadric parameters to a NumPy file
             output_dir = os.path.join("./output", obj_name)
             os.makedirs(output_dir, exist_ok=True)
             superquadric_params_np = superquadric_params.cpu().detach().numpy()  # Shape: [1, K, 11]
-            # print(f"Superquadric Params NumPy Shape: {superquadric_params_np.shape}")  # Expected: [1, K, 11]
             np.save(os.path.join(output_dir, f"{obj_name}_superquadric_params.npy"), superquadric_params_np)
 
             # Visualize the superquadrics and optionally save the visualization
@@ -418,6 +518,7 @@ def main():
         except Exception as e:
             print(f"Error processing {obj_name}: {e}")
             traceback.print_exc()  # Print full traceback
+
 
 
 if __name__ == "__main__":
