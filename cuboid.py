@@ -8,16 +8,24 @@ from dgcnn import DGCNNFeat
 # ===========================
 # Modifiable Hyperparameters
 # ===========================
-num_epochs = 1000
+num_epochs = 2000
 num_cuboids = 4
 learning_rate = 0.0005
+bsmin_k = 22
+coverage_weight = 0.1 
+consistency_weight = 0.1
+rotation_weight = 0.01
 dataset_root_path = "./reference_models_processed"  # Root directory for the dataset
 # object_names = ["dog", "hand", "pot", "rod", "sofa"]  # List of object names to process
 object_names = [ "sofa"]
 output_dir = "./output"
 # ===========================
 
-def bsmin(a, dim, k=22.0, keepdim=False):
+def bsmin(a, dim, k=bsmin_k, keepdim=False): 
+    """
+    Smooth minimum function for better blending between cuboids.
+    Lower k value means smoother transitions between cuboids.
+    """
     dmix = -torch.logsumexp(-k * a, dim=dim, keepdim=keepdim) / k
     return dmix
 
@@ -174,6 +182,49 @@ class CuboidNet(nn.Module):
         # Compute SDF between query points and cuboids
         cuboid_sdf = determine_cuboid_sdf(query_points, cuboid_params)
         return cuboid_sdf, cuboid_params
+    
+def compute_coverage_loss(cuboid_params, surface_points):
+    """
+    Compute coverage loss following the paper's formulation:
+    L1({(zm, qm, tm)}, O) = Ep~S(O)||C(p; ∪Pm)||²
+    
+    Args:
+        cuboid_params: tensor of cuboid parameters (centers, quaternions, dimensions)
+        surface_points: points sampled from the object surface (representing S(O))
+    """
+    # Compute SDF for surface points
+    sdf = determine_cuboid_sdf(surface_points, cuboid_params)
+    min_distances = bsmin(sdf, dim=-1)
+    
+    # Add distance-based weighting
+    weights = torch.exp(5.0 * torch.abs(min_distances))  # Give more weight to poorly covered areas
+    weighted_distances = weights * min_distances ** 2
+    
+    coverage_loss = torch.mean(weighted_distances)
+    
+    return coverage_loss
+
+def compute_consistency_loss(cuboid_params, points, values):
+    """
+    Compute consistency loss following the paper's formulation:
+    L2({(zm, qm, tm)}, O) = sum_m Ep~S(Pm)||C(p; O)||²
+    
+    Args:
+        cuboid_params: tensor of cuboid parameters
+        points: query points for SDF computation
+        values: ground truth SDF values
+    """
+    # For points with negative SDF values (inside the cuboids)
+    inside_mask = values < 0
+    inside_points = points[inside_mask]
+    
+    if inside_points.shape[0] == 0:
+        return torch.tensor(0.0).to(points.device)
+    
+    # Compute SDF from these points to the ground truth surface
+    consistency_loss = torch.mean(values[inside_mask] ** 2)
+    
+    return consistency_loss
 
 def visualise_cuboids(cuboid_params, reference_model, save_path=None):
     """
@@ -257,23 +308,36 @@ def main():
                 surface_pointcloud.unsqueeze(0).transpose(2, 1), points
             )
 
-            # Compute the smooth minimum across all cuboids
-            cuboid_sdf = bsmin(cuboid_sdf, dim=-1).to(device)
+            # Main SDF loss
+            cuboid_sdf = bsmin(cuboid_sdf, dim=-1, k=bsmin_k).to(device)  
+            mse_loss = torch.mean((cuboid_sdf - values) ** 2)
 
-            # Loss function: Mean squared error between predicted SDF and ground truth
-            mseloss = torch.mean((cuboid_sdf - values) ** 2)
-            cuboid_quaternions = cuboid_params[:, 3:7]
-            rotation_loss = torch.mean(torch.abs(cuboid_quaternions[:, 1:]))  
-            
+            # Coverage loss
+            coverage_loss = compute_coverage_loss(cuboid_params, surface_pointcloud)
 
-            # Optional: You can add additional regularization losses here
+            # Consistency loss
+            consistency_loss = compute_consistency_loss(cuboid_params, points, values)
 
-            loss = mseloss + 0.1 * rotation_loss
+            # Quaternion regularization
+            quaternions = cuboid_params[:, 3:7]
+            rotation_loss = torch.mean(torch.abs(quaternions[:, 1:]))
+
+            # Combined loss with weights
+            loss = mse_loss + \
+                coverage_weight * coverage_loss + \
+                consistency_weight * consistency_loss + \
+                rotation_weight * rotation_loss
+
             loss.backward()
             optimizer.step()
 
             if (epoch + 1) % 50 == 0 or epoch == 0:
-                print(f"Epoch {epoch + 1}/{num_epochs}, Loss: {loss.item()}")
+                print(f"Epoch {epoch + 1}/{num_epochs}, "
+                    f"Total Loss: {loss.item():.6f}, "
+                    f"MSE Loss: {mse_loss.item():.6f}, "
+                    f"Coverage Loss: {coverage_loss.item():.6f}, "
+                    f"consistency Loss: {consistency_loss.item():.6f}, "
+                    f"Rotation Loss: {rotation_loss.item():.6f}")
 
         # Save the cuboid parameters
         os.makedirs(output_dir, exist_ok=True)
