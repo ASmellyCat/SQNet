@@ -18,16 +18,17 @@ warnings.filterwarnings('ignore', category=UserWarning)
 # ===========================
 # Modifiable Hyperparameters
 # ===========================
-num_epochs = 1000
-num_cuboids = 16
+num_epochs = 2000
+num_cuboids = 1
 learning_rate = 0.0005
 bsmin_k = 22
 coverage_weight = 0.01        # Increased coverage weight
-rotation_weight = 0.01
+rotation_weight = 0
 repulsion_weight = 0.1       # Added repulsion weight
+dimension_weight = 0
 num_surface_points = 1000    # Number of points to sample per cuboid surface
 dataset_root_path = "./reference_models_processed"  # Root directory for the dataset
-object_names = ["dog"]      # List of object names to process
+object_names = ["rod"]      # List of object names to process
 output_dir = "./output"
 # ===========================
 
@@ -247,6 +248,11 @@ def compute_repulsion_loss(cuboid_params):
 
     return repulsion_loss
 
+def compute_dimension_regularization(cuboid_params):
+    dimensions = cuboid_params[:, 7:]  # N x 3
+    desired_dimensions = torch.tensor([0.5, 0.5, 0.5]).to(dimensions.device)
+    dimension_loss = torch.mean((dimensions - desired_dimensions) ** 2)
+    return dimension_loss
 
 def visualise_cuboids(cuboid_params, reference_model, save_path=None):
     """
@@ -422,11 +428,15 @@ def main():
             # Repulsion loss
             repulsion_loss = compute_repulsion_loss(cuboid_params)
 
+            # Dimension loss
+            dimension_loss = compute_dimension_regularization(cuboid_params)
+
             # Combined loss with weights
             loss = mse_loss + \
                 rotation_weight * rotation_loss + \
                 coverage_weight * coverage_loss + \
-                repulsion_weight * repulsion_loss
+                repulsion_weight * repulsion_loss +\
+                dimension_weight * dimension_loss
 
             loss.backward()
             optimizer.step()
@@ -437,7 +447,8 @@ def main():
                     f"MSE Loss: {mse_loss.item():.6f}, "
                     f"Coverage Loss: {coverage_loss.item():.6f}, "
                     f"Rotation Loss: {rotation_loss.item():.6f}, "
-                    f"Repulsion Loss: {repulsion_loss.item():.6f}")
+                    f"Repulsion Loss: {repulsion_loss.item():.6f}, "
+                    f"Dimension Loss: {dimension_loss.item():.6f}")
 
         # Save the cuboid parameters
         os.makedirs(output_dir, exist_ok=True)
