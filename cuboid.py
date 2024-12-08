@@ -4,6 +4,7 @@ import torch.nn as nn
 import os
 import trimesh
 from dgcnn import DGCNNFeat
+from eval import calculate_metrics
 
 # ===========================
 # Modifiable Hyperparameters
@@ -258,7 +259,10 @@ def visualise_cuboids(cuboid_params, reference_model, save_path=None):
     scene.show()
 
 def main():
+    is_training = False
     device = "cuda" if torch.cuda.is_available() else "cpu"  # Use GPU if available
+    os.makedirs(output_dir, exist_ok=True)
+    print(device)
 
     for obj_name in object_names:
         print(f"Processing object: {obj_name}")
@@ -279,53 +283,55 @@ def main():
         values = torch.from_numpy(values).float().to(device)
         surface_pointcloud = torch.from_numpy(pcd_model.vertices).float().to(device)
 
-        model = CuboidNet(num_cuboids).to(device)
-        optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+        if is_training: # train the model
+            model = CuboidNet(num_cuboids).to(device)
+            optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
 
-        for epoch in range(num_epochs):
-            model.train()
-            optimizer.zero_grad()
-            cuboid_sdf, cuboid_params = model(
-                surface_pointcloud.unsqueeze(0).transpose(2, 1), points
-            )
+            for epoch in range(num_epochs):
+                model.train()
+                optimizer.zero_grad()
+                cuboid_sdf, cuboid_params = model(
+                    surface_pointcloud.unsqueeze(0).transpose(2, 1), points
+                )
 
-            # Main SDF loss
-            cuboid_sdf = bsmin(cuboid_sdf, dim=-1, k=bsmin_k).to(device)  
-            mse_loss = torch.mean((cuboid_sdf - values) ** 2)
+                # Main SDF loss
+                cuboid_sdf = bsmin(cuboid_sdf, dim=-1, k=bsmin_k).to(device)  
+                mse_loss = torch.mean((cuboid_sdf - values) ** 2)
 
-            # Coverage loss
-            coverage_loss = compute_coverage_loss(cuboid_params, surface_pointcloud)
-
-
-
-
-            # Quaternion regularization
-            quaternions = cuboid_params[:, 3:7]
-            rotation_loss = torch.mean(torch.abs(quaternions[:, 1:]))
-
-            # Combined loss with weights
-            loss = mse_loss + \
-                rotation_weight * rotation_loss + \
-                coverage_weight * coverage_loss 
+                # Coverage loss
+                coverage_loss = compute_coverage_loss(cuboid_params, surface_pointcloud)
 
 
-            loss.backward()
-            optimizer.step()
 
-            if (epoch + 1) % 50 == 0 or epoch == 0:
-                print(f"Epoch {epoch + 1}/{num_epochs}, "
-                    f"Total Loss: {loss.item():.6f}, "
-                    f"MSE Loss: {mse_loss.item():.6f}, "
-                    f"Coverage Loss: {coverage_loss.item():.6f}, "
-                    f"Rotation Loss: {rotation_loss.item():.6f}")
 
-        # Save the cuboid parameters
-        os.makedirs(output_dir, exist_ok=True)
-        np.save(os.path.join(output_dir, f"{obj_name}_cuboid_params.npy"), cuboid_params.cpu().detach().numpy())
+                # Quaternion regularization
+                quaternions = cuboid_params[:, 3:7]
+                rotation_loss = torch.mean(torch.abs(quaternions[:, 1:]))
 
-        print("Final Cuboid Parameters:")
-        print(cuboid_params)
+                # Combined loss with weights
+                loss = mse_loss + \
+                    rotation_weight * rotation_loss + \
+                    coverage_weight * coverage_loss 
 
+
+                loss.backward()
+                optimizer.step()
+
+                if (epoch + 1) % 50 == 0 or epoch == 0:
+                    print(f"Epoch {epoch + 1}/{num_epochs}, "
+                        f"Total Loss: {loss.item():.6f}, "
+                        f"MSE Loss: {mse_loss.item():.6f}, "
+                        f"Coverage Loss: {coverage_loss.item():.6f}, "
+                        f"Rotation Loss: {rotation_loss.item():.6f}")
+            # Save the cuboid parameters
+            np.save(os.path.join(output_dir, f"{obj_name}_cuboid_params.npy"), cuboid_params.cpu().detach().numpy())
+
+            print("Final Cuboid Parameters:")
+            print(cuboid_params)
+        else: # load the model
+            cuboid_params = torch.from_numpy(np.load(os.path.join(output_dir,obj_name, f"{obj_name}_cuboid_params.npy"))).to(device)
+
+        calculate_metrics(surface_pointcloud.cpu().numpy(), cuboid_params, num_surface_points)
         # Visualize the cuboids with distinct colors
         visualise_cuboids(cuboid_params, reference_model=pcd_model, save_path=os.path.join(output_dir, f"{obj_name}_cuboids.obj"))
 
