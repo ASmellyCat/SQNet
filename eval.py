@@ -21,6 +21,7 @@ def calculate_chamfer_distance(gt, pr):
     chamfer_dist = np.mean(d1) + np.mean(d2)
     return chamfer_dist
 
+# https://arxiv.org/pdf/1905.03678
 def calculate_fscore(gt, pr, th=0.05):
     """
     Compute the distance between two point clouds using trimesh.
