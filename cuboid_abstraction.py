@@ -27,6 +27,7 @@ from sklearn.cluster import SpectralClustering
 from sklearn.decomposition import PCA
 from torch.nn.functional import grid_sample
 from torch.cuda.amp import autocast, GradScaler
+from eval import calculate_metrics
 from typing import List, Tuple, Optional
 
 # ===========================
@@ -617,6 +618,9 @@ def main() -> None:
         cuboid_params_path = os.path.join(cuboid_output_dir, f"{obj_name}_cuboid_params.npy")
         np.save(cuboid_params_path, cuboid_params.cpu().detach().numpy())
         print(f"Cuboid parameters saved to {cuboid_params_path}")
+
+        # Calculate metrics
+        calculate_metrics(surface_pointcloud.cpu().numpy(), cuboid_params, NUM_SURFACE_POINTS)
 
         # Visualize the cuboids with distinct colors
         cuboids_save_path = os.path.join(cuboid_output_dir, f"{obj_name}_cuboids.obj")
