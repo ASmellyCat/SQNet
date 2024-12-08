@@ -20,14 +20,14 @@ warnings.filterwarnings('ignore', category=UserWarning)
 # ===========================
 # Configurable Hyperparameters
 # ===========================
-num_epochs = 2000
+num_epochs = 1000
 num_cuboids = 5
 learning_rate = 0.0001
 bsmin_k = 22
 coverage_weight = 0       # Increased coverage weight
 rotation_weight = 0
 repulsion_weight = 0.05      # Added repulsion weight
-consistency_weight = 0.1     # Consistency loss weight
+consistency_weight = 0.0     # Consistency loss weight
 num_surface_points = 1000    # Number of points to sample per cuboid surface
 object_names = ["hand"]      # List of object names to process
 use_sdf_training = False     # Boolean flag to control SDF network training

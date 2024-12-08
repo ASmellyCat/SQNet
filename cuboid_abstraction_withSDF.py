@@ -43,12 +43,13 @@ NUM_EPOCHS = 1000
 NUM_CUBOIDS = 5
 LEARNING_RATE = 0.0001
 BSMIN_K = 15
-COVERAGE_WEIGHT = 0       # Increased coverage weight
-ROTATION_WEIGHT = 0
-REPULSION_WEIGHT = 0.05      # Added repulsion weight
-DIMENSION_WEIGHT = 0.00       # Dimension regularization weight
+COVERAGE_WEIGHT = 0.01       # Increased coverage weight
+ROTATION_WEIGHT = 0.05
+REPULSION_WEIGHT = 0.07      # Added repulsion weight
+CONSISTENCY_WEIGHT = 0.1     # Consistency loss weight
+DIMENSION_WEIGHT = 0.02       # Dimension regularization weight
 NUM_SURFACE_POINTS = 1000    # Points sampled per cuboid surface
-OBJECT_NAMES = ["hand"]        # Objects to process
+OBJECT_NAMES = ["pot"]        # Objects to process
 USE_SDF_TRAINING = False      # Control SDF network training
 USE_INIT = True               # Control the use of initilization
 OUTPUT_DIR = "./output"
@@ -270,7 +271,33 @@ class CuboidNet(nn.Module):
 
         return cuboid_sdf, cuboid_params
 
+class SDFNetwork(nn.Module):
+    """
+    Neural network to approximate the Signed Distance Function (SDF) of the target object.
+    """
 
+    def __init__(self, hidden_size: int = 256, num_layers: int = 4):
+        super(SDFNetwork, self).__init__()
+        layers = []
+        layers.append(nn.Linear(3, hidden_size))
+        layers.append(nn.ReLU())
+        for _ in range(num_layers - 1):
+            layers.append(nn.Linear(hidden_size, hidden_size))
+            layers.append(nn.ReLU())
+        layers.append(nn.Linear(hidden_size, 1))
+        self.network = nn.Sequential(*layers)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Forward pass through the SDF network.
+
+        Args:
+            x (torch.Tensor): Input points.
+
+        Returns:
+            torch.Tensor: SDF values.
+        """
+        return self.network(x).squeeze(-1)
 
 # ===========================
 # Loss Functions
@@ -338,6 +365,117 @@ def compute_repulsion_loss(cuboid_params: torch.Tensor) -> torch.Tensor:
 
     return repulsion_loss
 
+def sample_points_on_cuboid_surface(dimensions: torch.Tensor, num_points: int) -> torch.Tensor:
+    """
+    Sample points on the surface of a cuboid with given dimensions.
+
+    Args:
+        dimensions (torch.Tensor): Tensor of shape (3,) representing (dx, dy, dz).
+        num_points (int): Number of points to sample.
+
+    Returns:
+        torch.Tensor: Tensor of shape (num_points, 3) representing points on the surface.
+    """
+    device = dimensions.device
+
+    # Half dimensions
+    dx, dy, dz = dimensions / 2
+
+    # Areas of faces
+    area_xy = dx * dy * 2  # Faces perpendicular to z
+    area_xz = dx * dz * 2  # Faces perpendicular to y
+    area_yz = dy * dz * 2  # Faces perpendicular to x
+
+    total_area = area_xy + area_xz + area_yz
+
+    # Number of points per face based on area
+    num_points_xy = max(int(num_points * area_xy / total_area), 1)
+    num_points_xz = max(int(num_points * area_xz / total_area), 1)
+    num_points_yz = num_points - num_points_xy - num_points_xz
+
+    # Sampling on +/-z faces
+    u1 = torch.rand(num_points_xy // 2, 1, device=device) * 2 - 1
+    v1 = torch.rand(num_points_xy // 2, 1, device=device) * 2 - 1
+    z1 = torch.ones(num_points_xy // 2, 1, device=device)
+    points1 = torch.cat([u1, v1, z1], dim=1)
+
+    u2 = torch.rand(num_points_xy - num_points_xy // 2, 1, device=device) * 2 - 1
+    v2 = torch.rand(num_points_xy - num_points_xy // 2, 1, device=device) * 2 - 1
+    z2 = -torch.ones(num_points_xy - num_points_xy // 2, 1, device=device)
+    points2 = torch.cat([u2, v2, z2], dim=1)
+
+    # Sampling on +/-x faces
+    v3 = torch.rand(num_points_yz // 2, 1, device=device) * 2 - 1
+    w3 = torch.rand(num_points_yz // 2, 1, device=device) * 2 - 1
+    x3 = torch.ones(num_points_yz // 2, 1, device=device)
+    points3 = torch.cat([x3, v3, w3], dim=1)
+
+    v4 = torch.rand(num_points_yz - num_points_yz // 2, 1, device=device) * 2 - 1
+    w4 = torch.rand(num_points_yz - num_points_yz // 2, 1, device=device) * 2 - 1
+    x4 = -torch.ones(num_points_yz - num_points_yz // 2, 1, device=device)
+    points4 = torch.cat([x4, v4, w4], dim=1)
+
+    # Sampling on +/-y faces
+    u5 = torch.rand(num_points_xz // 2, 1, device=device) * 2 - 1
+    w5 = torch.rand(num_points_xz // 2, 1, device=device) * 2 - 1
+    y5 = torch.ones(num_points_xz // 2, 1, device=device)
+    points5 = torch.cat([u5, y5, w5], dim=1)
+
+    u6 = torch.rand(num_points_xz - num_points_xz // 2, 1, device=device) * 2 - 1
+    w6 = torch.rand(num_points_xz - num_points_xz // 2, 1, device=device) * 2 - 1
+    y6 = -torch.ones(num_points_xz - num_points_xz // 2, 1, device=device)
+    points6 = torch.cat([u6, y6, w6], dim=1)
+
+    # Concatenate all points
+    points = torch.cat([points1, points2, points3, points4, points5, points6], dim=0)
+
+    # Scale points by dimensions / 2
+    points_scaled = points * (dimensions / 2).unsqueeze(0)
+
+    return points_scaled
+
+def compute_consistency_loss(cuboid_params: torch.Tensor,
+                            sdf_function: callable,
+                            num_surface_points_per_cuboid: int) -> torch.Tensor:
+    """
+    Compute the consistency loss between the cuboids and the target object's SDF.
+    Based on the formulation from [1].
+
+    Args:
+        cuboid_params (torch.Tensor): Kx10 tensor of cuboid parameters.
+        sdf_function (callable): Function that takes points (N x 3) and returns SDF values (N).
+        num_surface_points_per_cuboid (int): Number of surface points to sample per cuboid.
+
+    Returns:
+        torch.Tensor: Consistency loss.
+    """
+    K = cuboid_params.shape[0]
+    losses = []
+    for m in range(K):
+        center = cuboid_params[m, :3]                # (3,)
+        quaternion = cuboid_params[m, 3:7]           # (4,)
+        dimensions = cuboid_params[m, 7:]           # (3,)
+
+        # Sample points p' on the surface of P_m
+        p_prime = sample_points_on_cuboid_surface(dimensions, num_surface_points_per_cuboid).to(cuboid_params.device)  # (N_p, 3)
+
+        # Rotate p' using quaternion
+        rotation_matrix = quaternion_to_rotation_matrix(quaternion.unsqueeze(0))  # (1, 3, 3)
+        p_rotated = torch.matmul(p_prime, rotation_matrix.squeeze(0).T)          # (N_p, 3)
+
+        # Translate
+        p = p_rotated + center.unsqueeze(0)                                      # (N_p, 3)
+
+        # Evaluate SDF at p
+        C_p = sdf_function(p)                                                     # (N_p,)
+
+        # Compute loss as mean squared value of C_p
+        loss_m = torch.mean(C_p ** 2)
+        losses.append(loss_m)
+
+    consistency_loss = torch.sum(torch.stack(losses))
+
+    return consistency_loss
 
 def compute_dimension_regularization(cuboid_params: torch.Tensor) -> torch.Tensor:
     """
@@ -497,6 +635,71 @@ def initialize_cuboid_params_with_spectral_clustering(model: nn.Module,
         print(f"Error during cuboid parameter initialization: {e}")
         raise
 
+# ===========================
+# SDF Network Training
+# ===========================
+
+def train_sdf_network(sdf_net: nn.Module,
+                     sdf_loader: torch.utils.data.DataLoader,
+                     sdf_optimizer: torch.optim.Optimizer,
+                     sdf_num_epochs: int,
+                     device: torch.device) -> None:
+    """
+    Train the SDF network.
+
+    Args:
+        sdf_net (nn.Module): The SDF network instance.
+        sdf_loader (torch.utils.data.DataLoader): DataLoader for SDF training data.
+        sdf_optimizer (torch.optim.Optimizer): Optimizer for the SDF network.
+        sdf_num_epochs (int): Number of training epochs.
+        device (torch.device): Device to train on.
+    """
+    scaler = GradScaler()
+    sdf_net.train()
+    for epoch in range(sdf_num_epochs):
+        total_loss = 0.0
+        for batch_points, batch_values in sdf_loader:
+            batch_points = batch_points.to(device)
+            batch_values = batch_values.to(device)
+
+            sdf_optimizer.zero_grad()
+            with autocast(device_type='cuda'):
+                pred_values = sdf_net(batch_points)
+                loss = torch.mean((pred_values - batch_values) ** 2)
+            scaler.scale(loss).backward()
+            scaler.step(sdf_optimizer)
+            scaler.update()
+            total_loss += loss.item() * batch_points.shape[0]
+
+        if (epoch + 1) % 100 == 0 or epoch == 0:
+            avg_loss = total_loss / len(sdf_loader.dataset)
+            print(f"SDF Epoch {epoch + 1}/{sdf_num_epochs}, Loss: {avg_loss:.6f}")
+
+    # Save the trained SDF network
+    sdf_model_dir = os.path.join(OUTPUT_DIR, "model", "sdfnet")
+    os.makedirs(sdf_model_dir, exist_ok=True)
+    torch.save(sdf_net.state_dict(), os.path.join(sdf_model_dir, "sdf_network.pth"))
+
+def load_trained_sdf_network(sdf_net: nn.Module,
+                             path: str,
+                             device: torch.device) -> nn.Module:
+    """
+    Load a pre-trained SDF network.
+
+    Args:
+        sdf_net (nn.Module): The SDF network instance.
+        path (str): Path to the saved SDF network state dict.
+        device (torch.device): Device to load the network on.
+
+    Returns:
+        nn.Module: Loaded SDF network.
+    """
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"SDF network not found at {path}. Please train the network first.")
+
+    sdf_net.load_state_dict(torch.load(path, map_location=device))
+    sdf_net.eval()
+    return sdf_net
 
 # ===========================
 # Main Execution
@@ -548,6 +751,40 @@ def main() -> None:
         model = CuboidNet(NUM_CUBOIDS).to(device)
         optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
 
+        # Initialize SDF Network
+        sdf_net = SDFNetwork().to(device)
+        sdf_model_dir = os.path.join(OUTPUT_DIR, "model", "sdfnet")
+        os.makedirs(sdf_model_dir, exist_ok=True)
+        sdf_model_path = os.path.join(sdf_model_dir, "sdf_network.pth")
+
+        if USE_SDF_TRAINING:
+            if os.path.exists(sdf_model_path):
+                print("Loading pre-trained SDF network...")
+                sdf_net = load_trained_sdf_network(sdf_net, sdf_model_path, device)
+            else:
+                print("Training SDF network...")
+                sdf_optimizer = torch.optim.Adam(sdf_net.parameters(), lr=1e-3)
+                sdf_num_epochs = 1000
+                sdf_batch_size = 1024
+
+                sdf_dataset = torch.utils.data.TensorDataset(points, values)
+                sdf_loader = torch.utils.data.DataLoader(sdf_dataset, batch_size=sdf_batch_size, shuffle=True)
+
+                train_sdf_network(sdf_net, sdf_loader, sdf_optimizer, sdf_num_epochs, device)
+        else:
+            if os.path.exists(sdf_model_path):
+                print("Loading pre-trained SDF network...")
+                sdf_net = load_trained_sdf_network(sdf_net, sdf_model_path, device)
+            else:
+                raise FileNotFoundError(
+                    f"SDF network not found at {sdf_model_path}. "
+                    f"Please set USE_SDF_TRAINING=True to train it."
+                )
+
+        # Define SDF function
+        def sdf_function(p: torch.Tensor) -> torch.Tensor:
+            with torch.no_grad():
+                return sdf_net(p)
 
         # Initialize cuboid parameters using Spectral Clustering
         if USE_INIT:
@@ -582,6 +819,8 @@ def main() -> None:
             # Repulsion loss
             repulsion_loss = compute_repulsion_loss(cuboid_params)
 
+            # Consistency loss [1]
+            consistency_loss = compute_consistency_loss(cuboid_params, sdf_function, NUM_SURFACE_POINTS)
 
             # Dimension regularization
             dimension_loss = compute_dimension_regularization(cuboid_params)
@@ -592,6 +831,7 @@ def main() -> None:
                 ROTATION_WEIGHT * rotation_loss +
                 COVERAGE_WEIGHT * coverage_loss +
                 REPULSION_WEIGHT * repulsion_loss +
+                CONSISTENCY_WEIGHT * consistency_loss +
                 DIMENSION_WEIGHT * dimension_loss  # Added dimension regularization
             )
 
@@ -608,6 +848,7 @@ def main() -> None:
                     f"Rotation Loss: {rotation_loss.item():.6f}, "
                     f"Coverage Loss: {coverage_loss.item():.6f}, "
                     f"Repulsion Loss: {repulsion_loss.item():.6f}, "
+                    f"Consistency Loss: {consistency_loss.item():.6f}, "
                     f"Dimension Loss: {dimension_loss.item():.6f}"
                 )
 
