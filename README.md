@@ -1,5 +1,6 @@
 Baseline Metrics:
-`Dog:
+```
+Dog:
 F1-score (↑): 0.288189, Precision: 0.286125, Recall: 0.290283
 Chamfer Distance (↓): 0.219538
 
@@ -17,4 +18,5 @@ Chamfer Distance (↓): 0.164810
 
 Rod:
 F1-score (↑): 0.459253, Precision: 0.461000, Recall: 0.457520
-Chamfer Distance (↓): 0.152085`
+Chamfer Distance (↓): 0.152085
+```
