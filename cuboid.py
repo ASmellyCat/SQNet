@@ -10,11 +10,11 @@ from eval import calculate_metrics
 # Modifiable Hyperparameters
 # ===========================
 num_epochs = 1000
-num_cuboids = 4
+num_cuboids = 8
 learning_rate = 0.0005
 bsmin_k = 22
 coverage_weight = 0
-rotation_weight = 0.1
+rotation_weight = 0.0
 num_surface_points = 1000  # Number of points to sample per cuboid surface
 dataset_root_path = "./reference_models_processed"  # Root directory for the dataset
 # object_names = ["dog", "hand", "pot", "rod", "sofa"]  # List of object names to process
@@ -235,12 +235,12 @@ def visualise_cuboids(cuboid_params, reference_model, save_path=None):
         [128, 128, 0, 255],  # Olive
     ]
 
-    scene = trimesh.Scene()
-    if reference_model is not None:
-        if isinstance(reference_model, trimesh.points.PointCloud):
-            # Assign a blue color to the reference point cloud
-            reference_model.colors = [[219, 204, 188, 255]] * len(reference_model.vertices)
-        scene.add_geometry(reference_model)
+    # scene = trimesh.Scene()
+    # if reference_model is not None:
+    #     if isinstance(reference_model, trimesh.points.PointCloud):
+    #         # Assign a blue color to the reference point cloud
+    #         reference_model.colors = [[219, 204, 188, 255]] * len(reference_model.vertices)
+    #     scene.add_geometry(reference_model)
 
     for i, (center, quaternion, dimensions) in enumerate(zip(cuboid_centers, cuboid_quaternions, cuboid_dimensions)):
         box = trimesh.creation.box(extents=dimensions)

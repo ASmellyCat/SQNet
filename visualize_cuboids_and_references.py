@@ -127,4 +127,4 @@ def visualize_obj_scenes(obj_name):
     scene3.show()  # Close this window after screenshot
 
 # Call the function
-visualize_obj_scenes("sofa")
+visualize_obj_scenes("rod")

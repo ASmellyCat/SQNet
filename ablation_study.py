@@ -151,168 +151,166 @@ if __name__ == "__main__":
     output_dir = "./ablation_output"
     dataset_root_path = "./reference_models_processed"
 
-    # ---------------------------
-    # Experiment 1: Dog - Repulsion Weight Variation
-    # ---------------------------
-    print("\n========== Experiment 1: Dog - Repulsion Weight Variation ==========\n")
-    # Baseline
-    print("** Running Baseline (repulsion_weight=0.001) **")
-    run_experiment(
-        object_names=["dog"],
-        dataset_root_path=dataset_root_path,
-        output_dir=output_dir,
-        num_epochs=1000,
-        num_cuboids=16,
-        learning_rate=0.0005,
-        bsmin_k=22,
-        coverage_weight=0.1,
-        rotation_weight=0.01,
-        repulsion_weight=0.000,  # baseline
-        dimension_weight=0.0,
-        num_surface_points=1000,
-        use_init=True
-    )
+    # # ---------------------------
+    # # Experiment 1: Dog - Repulsion Weight Variation
+    # # ---------------------------
+    # print("\n========== Experiment 1: Dog - Repulsion Weight Variation ==========\n")
+    # # Baseline
+    # print("** Running Baseline (repulsion_weight=0.00) **")
+    # run_experiment(
+    #     object_names=["dog"],
+    #     dataset_root_path=dataset_root_path,
+    #     output_dir=output_dir,
+    #     num_epochs=1000,
+    #     num_cuboids=16,
+    #     learning_rate=0.0005,
+    #     bsmin_k=22,
+    #     coverage_weight=0.1,
+    #     rotation_weight=0.01,
+    #     repulsion_weight=0.000,  # baseline
+    #     dimension_weight=0.0,
+    #     num_surface_points=1000,
+    #     use_init=True
+    # )
 
-    # Variation B1
-    print("** Running Variation B1 (repulsion_weight=0.05) **")
-    run_experiment(
-        object_names=["dog"],
-        dataset_root_path=dataset_root_path,
-        output_dir=output_dir,
-        num_epochs=1000,
-        num_cuboids=16,
-        learning_rate=0.0005,
-        bsmin_k=22,
-        coverage_weight=0.1,
-        rotation_weight=0.01,
-        repulsion_weight=0.05,
-        dimension_weight=0.0,
-        num_surface_points=1000,
-        use_init=True
-    )
+    # # Variation B1
+    # print("** Running Variation B1 (repulsion_weight=0.05) **")
+    # run_experiment(
+    #     object_names=["dog"],
+    #     dataset_root_path=dataset_root_path,
+    #     output_dir=output_dir,
+    #     num_epochs=1000,
+    #     num_cuboids=16,
+    #     learning_rate=0.0005,
+    #     bsmin_k=22,
+    #     coverage_weight=0.1,
+    #     rotation_weight=0.01,
+    #     repulsion_weight=0.05,
+    #     dimension_weight=0.0,
+    #     num_surface_points=1000,
+    #     use_init=True
+    # )
 
-    # Variation B2
-    print("** Running Variation B2 (repulsion_weight=0.1) **")
-    run_experiment(
-        object_names=["dog"],
-        dataset_root_path=dataset_root_path,
-        output_dir=output_dir,
-        num_epochs=1000,
-        num_cuboids=16,
-        learning_rate=0.0005,
-        bsmin_k=22,
-        coverage_weight=0.1,
-        rotation_weight=0.01,
-        repulsion_weight=0.1,
-        dimension_weight=0.0,
-        num_surface_points=1000,
-        use_init=True
-    )
+    # # Variation B2
+    # print("** Running Variation B2 (repulsion_weight=0.1) **")
+    # run_experiment(
+    #     object_names=["dog"],
+    #     dataset_root_path=dataset_root_path,
+    #     output_dir=output_dir,
+    #     num_epochs=1000,
+    #     num_cuboids=16,
+    #     learning_rate=0.0005,
+    #     bsmin_k=22,
+    #     coverage_weight=0.1,
+    #     rotation_weight=0.01,
+    #     repulsion_weight=0.1,
+    #     dimension_weight=0.0,
+    #     num_surface_points=1000,
+    #     use_init=True
+    # )
 
 # ---------------------------
     # Experiment 2: Hand - Clustering + PCA On/Off
     # ---------------------------
     print("\n========== Experiment 2: Hand - SDF Network On/Off ==========\n")
 
-    # Baseline: Clustering + PCA OFF
-    print("** Running Baseline (Clustering + PCA OFF) **")
-    run_experiment(
-        object_names=["hand"],
-        dataset_root_path=dataset_root_path,
-        output_dir=output_dir,
-        num_epochs=1000,
-        num_cuboids=5,
-        learning_rate=0.0001,
-        bsmin_k=22,
-        coverage_weight=0.0,
-        rotation_weight=0.0,
-        repulsion_weight=0.05,
-        dimension_weight=0.0,
-        num_surface_points=1000,
-        use_sdf_training=False,
-        use_init=True,
+    # # Baseline: Clustering + PCA OFF
+    # print("** Running Baseline (Clustering + PCA OFF) **")
+    # run_experiment(
+    #     object_names=["hand"],
+    #     dataset_root_path=dataset_root_path,
+    #     output_dir=output_dir,
+    #     num_epochs=1000,
+    #     num_cuboids=5,
+    #     learning_rate=0.0001,
+    #     bsmin_k=22,
+    #     coverage_weight=0.0,
+    #     rotation_weight=0.0,
+    #     repulsion_weight=0.05,
+    #     dimension_weight=0.0,
+    #     num_surface_points=1000,
+    #     use_init= False,
 
-    )
+    # )
 
-    # Variation S1: Clustering + PCA ON
-    print("** Running Variation S1 (Clustering + PCA ON) **")
-    run_experiment(
-        object_names=["hand"],
-        dataset_root_path=dataset_root_path,
-        output_dir=output_dir,
-        num_epochs=1000,
-        num_cuboids=5,
-        learning_rate=0.0001,
-        bsmin_k=22,
-        coverage_weight=0.0,
-        rotation_weight=0.0,
-        repulsion_weight=0.05,
-        dimension_weight=0.0,
-        num_surface_points=1000,
-        use_sdf_training=False,
-        use_init=False,
-    )
+    # # Variation S1: Clustering + PCA ON
+    # print("** Running Variation S1 (Clustering + PCA ON) **")
+    # run_experiment(
+    #     object_names=["hand"],
+    #     dataset_root_path=dataset_root_path,
+    #     output_dir=output_dir,
+    #     num_epochs=1000,
+    #     num_cuboids=5,
+    #     learning_rate=0.0001,
+    #     bsmin_k=22,
+    #     coverage_weight=0.0,
+    #     rotation_weight=0.0,
+    #     repulsion_weight=0.05,
+    #     dimension_weight=0.0,
+    #     num_surface_points=1000,
+    #     use_init=False,
+    # )
 
-    # ---------------------------
-    # Experiment 3: Pot - Coverage Loss Variation
-    # ---------------------------
-    print("\n========== Experiment 3: Pot - Initialization Variation ==========\n")
-    # Baseline (With initialization)
-    print("** Running Baseline (coverage_weight=0.00) **")
-    run_experiment(
-        object_names=["pot"],
-        dataset_root_path=dataset_root_path,
-        output_dir=output_dir,
-        num_epochs=1000,
-        num_cuboids=6,
-        learning_rate=0.0001,
-        bsmin_k=22,
-        coverage_weight=0.0, #baseline
-        rotation_weight=0.05,
-        repulsion_weight=0.05,
-        dimension_weight=0.0,
-        num_surface_points=1000,
-        use_sdf_training=False,
-        use_init=False  
-    )
+    # # ---------------------------
+    # # Experiment 3: Pot - Coverage Loss Variation
+    # # ---------------------------
+    # print("\n========== Experiment 3: Pot - Initialization Variation ==========\n")
+    # # Baseline (With initialization)
+    # print("** Running Baseline (coverage_weight=0.00) **")
+    # run_experiment(
+    #     object_names=["pot"],
+    #     dataset_root_path=dataset_root_path,
+    #     output_dir=output_dir,
+    #     num_epochs=1000,
+    #     num_cuboids=6,
+    #     learning_rate=0.0001,
+    #     bsmin_k=22,
+    #     coverage_weight=0.0, #baseline
+    #     rotation_weight=0.05,
+    #     repulsion_weight=0.05,
+    #     dimension_weight=0.0,
+    #     num_surface_points=1000,
 
-    # Variation I1 (Without initialization)
-    print("** Running Variation I1 (coverage_weight=0.05) **")
-    run_experiment(
-        object_names=["pot"],
-        dataset_root_path=dataset_root_path,
-        output_dir=output_dir,
-        num_epochs=1000,
-        num_cuboids=6,
-        learning_rate=0.0001,
-        bsmin_k=22,
-        coverage_weight=0.05,
-        rotation_weight=0.05,
-        repulsion_weight=0.05,
-        dimension_weight=0.0,
-        num_surface_points=1000,
-        use_sdf_training=False,
-        use_init=False
-    )
+    #     use_init=False  
+    # )
 
-     # Variation I2 (Without initialization)
-    print("** Running Variation I1 (coverage_weight=0.1) **")
-    run_experiment(
-        object_names=["pot"],
-        dataset_root_path=dataset_root_path,
-        output_dir=output_dir,
-        num_epochs=1000,
-        num_cuboids=6,
-        learning_rate=0.0001,
-        bsmin_k=22,
-        coverage_weight=0.1,
-        rotation_weight=0.05,
-        repulsion_weight=0.05,
-        dimension_weight=0.0,
-        num_surface_points=1000,
-        use_sdf_training=False,
-        use_init=False
-    )
+    # # Variation I1 (Without initialization)
+    # print("** Running Variation I1 (coverage_weight=0.05) **")
+    # run_experiment(
+    #     object_names=["pot"],
+    #     dataset_root_path=dataset_root_path,
+    #     output_dir=output_dir,
+    #     num_epochs=1000,
+    #     num_cuboids=6,
+    #     learning_rate=0.0001,
+    #     bsmin_k=22,
+    #     coverage_weight=0.05,
+    #     rotation_weight=0.05,
+    #     repulsion_weight=0.05,
+    #     dimension_weight=0.0,
+    #     num_surface_points=1000,
+
+    #     use_init=False
+    # )
+
+    #  # Variation I2 (Without initialization)
+    # print("** Running Variation I1 (coverage_weight=0.1) **")
+    # run_experiment(
+    #     object_names=["pot"],
+    #     dataset_root_path=dataset_root_path,
+    #     output_dir=output_dir,
+    #     num_epochs=1000,
+    #     num_cuboids=6,
+    #     learning_rate=0.0001,
+    #     bsmin_k=22,
+    #     coverage_weight=0.1,
+    #     rotation_weight=0.05,
+    #     repulsion_weight=0.05,
+    #     dimension_weight=0.0,
+    #     num_surface_points=1000,
+
+    #     use_init=False
+    # )
 
     # ---------------------------
     # Experiment 4: Sofa - Dimension Loss Variation
@@ -324,7 +322,7 @@ if __name__ == "__main__":
         object_names=["sofa"],
         dataset_root_path=dataset_root_path,
         output_dir=output_dir,
-        num_epochs=2000,
+        num_epochs=1000,
         num_cuboids=8,
         learning_rate=0.0005,
         bsmin_k=22,
@@ -333,7 +331,7 @@ if __name__ == "__main__":
         repulsion_weight=0.001,
         dimension_weight=0.0,  # baseline
         num_surface_points=1000,
-        use_sdf_training=False,
+
         use_init=True
     )
 
@@ -343,7 +341,7 @@ if __name__ == "__main__":
         object_names=["sofa"],
         dataset_root_path=dataset_root_path,
         output_dir=output_dir,
-        num_epochs=2000,
+        num_epochs=1000,
         num_cuboids=8,
         learning_rate=0.0005,
         bsmin_k=22,
@@ -352,7 +350,7 @@ if __name__ == "__main__":
         repulsion_weight=0.001,
         dimension_weight=0.01,
         num_surface_points=1000,
-        use_sdf_training=False,
+
         use_init=True
     )
 
@@ -362,7 +360,7 @@ if __name__ == "__main__":
         object_names=["sofa"],
         dataset_root_path=dataset_root_path,
         output_dir=output_dir,
-        num_epochs=2000,
+        num_epochs=1000,
         num_cuboids=8,
         learning_rate=0.0005,
         bsmin_k=22,
@@ -371,7 +369,7 @@ if __name__ == "__main__":
         repulsion_weight=0.001,
         dimension_weight=0.05,
         num_surface_points=1000,
-        use_sdf_training=False,
+
         use_init=True
     )
 
