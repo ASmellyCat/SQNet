@@ -389,11 +389,11 @@ def visualize_cuboids(cuboid_params: torch.Tensor,
     ]
 
     scene = trimesh.Scene()
-    if reference_model is not None:
-        if isinstance(reference_model, trimesh.points.PointCloud):
-            # Assign a color to the reference point cloud
-            reference_model.colors = [[219, 204, 188, 255]] * len(reference_model.vertices)
-        scene.add_geometry(reference_model)
+    # if reference_model is not None:
+    #     if isinstance(reference_model, trimesh.points.PointCloud):
+    #         # Assign a color to the reference point cloud
+    #         reference_model.colors = [[219, 204, 188, 255]] * len(reference_model.vertices)
+    #     scene.add_geometry(reference_model)
 
     for i, (center, quaternion, dimensions) in enumerate(zip(cuboid_centers, cuboid_quaternions, cuboid_dimensions)):
         box = trimesh.creation.box(extents=dimensions)

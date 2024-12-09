@@ -7,6 +7,7 @@ Ablation Study Script
 This script runs four different experiments, each with multiple variations:
 1. Dog - Repulsion Weight Variation
 2. Hand - Initialization Variation
+3. Pot - Coverage Wgith Variation
 3. Sofa - Dimension Loss Variation
 """
 
@@ -15,11 +16,11 @@ import torch
 import numpy as np
 import trimesh
 
-from cuboid_abstraction_withSDF import (
-    CuboidNet, SDFNetwork, bsmin, determine_cuboid_sdf, compute_coverage_loss, compute_repulsion_loss,
-    compute_consistency_loss, compute_dimension_regularization, initialize_cuboid_params_with_spectral_clustering,
-    visualize_cuboids, train_sdf_network, load_trained_sdf_network
+from cuboid_abstraction import (
+    CuboidNet, bsmin, determine_cuboid_sdf, compute_coverage_loss, compute_repulsion_loss, compute_dimension_regularization, initialize_cuboid_params_with_spectral_clustering,
+    visualize_cuboids
 )
+from eval import calculate_metrics
 
 
 def run_experiment(
@@ -35,9 +36,8 @@ def run_experiment(
     repulsion_weight=0.0,
     dimension_weight=0.0,
     num_surface_points=1000,
-    use_sdf_training=False,
     use_init=True,   # If False, skip spectral clustering initialization
-    use_sdf_net=True # If False, do not load or use SDF network at all
+
 ):
     """
     Run a single ablation experiment with given hyperparameters.
@@ -137,6 +137,9 @@ def run_experiment(
         np.save(cuboid_params_path, cuboid_params.cpu().detach().numpy())
         print(f"[INFO] Cuboid parameters saved to {cuboid_params_path}")
 
+        # Calculate metrics
+        calculate_metrics(surface_pointcloud.cpu().numpy(), cuboid_params, num_surface_points)
+
         cuboids_save_path = os.path.join(obj_output_dir, f"{obj_name}_cuboids.obj")
         visualize_cuboids(cuboid_params=cuboid_params, reference_model=pcd_model, save_path=cuboids_save_path)
         print(f"[INFO] Cuboids visualization saved to {cuboids_save_path}")
@@ -148,110 +151,107 @@ if __name__ == "__main__":
     output_dir = "./ablation_output"
     dataset_root_path = "./reference_models_processed"
 
-    # # ---------------------------
-    # # Experiment 1: Dog - Repulsion Weight Variation
-    # # ---------------------------
-    # print("\n========== Experiment 1: Dog - Repulsion Weight Variation ==========\n")
-    # # Baseline
-    # print("** Running Baseline (repulsion_weight=0.001) **")
-    # run_experiment(
-    #     object_names=["dog"],
-    #     dataset_root_path=dataset_root_path,
-    #     output_dir=output_dir,
-    #     num_epochs=1000,
-    #     num_cuboids=16,
-    #     learning_rate=0.0005,
-    #     bsmin_k=22,
-    #     coverage_weight=0.1,
-    #     rotation_weight=0.01,
-    #     repulsion_weight=0.000,  # baseline
-    #     dimension_weight=0.0,
-    #     num_surface_points=1000,
-    #     use_sdf_training=False,
-    #     use_init=True
-    # )
+    # ---------------------------
+    # Experiment 1: Dog - Repulsion Weight Variation
+    # ---------------------------
+    print("\n========== Experiment 1: Dog - Repulsion Weight Variation ==========\n")
+    # Baseline
+    print("** Running Baseline (repulsion_weight=0.001) **")
+    run_experiment(
+        object_names=["dog"],
+        dataset_root_path=dataset_root_path,
+        output_dir=output_dir,
+        num_epochs=1000,
+        num_cuboids=16,
+        learning_rate=0.0005,
+        bsmin_k=22,
+        coverage_weight=0.1,
+        rotation_weight=0.01,
+        repulsion_weight=0.000,  # baseline
+        dimension_weight=0.0,
+        num_surface_points=1000,
+        use_init=True
+    )
 
-    # # Variation B1
-    # print("** Running Variation B1 (repulsion_weight=0.05) **")
-    # run_experiment(
-    #     object_names=["dog"],
-    #     dataset_root_path=dataset_root_path,
-    #     output_dir=output_dir,
-    #     num_epochs=1000,
-    #     num_cuboids=16,
-    #     learning_rate=0.0005,
-    #     bsmin_k=22,
-    #     coverage_weight=0.1,
-    #     rotation_weight=0.01,
-    #     repulsion_weight=0.05,
-    #     dimension_weight=0.0,
-    #     num_surface_points=1000,
-    #     use_sdf_training=False,
-    #     use_init=True
-    # )
+    # Variation B1
+    print("** Running Variation B1 (repulsion_weight=0.05) **")
+    run_experiment(
+        object_names=["dog"],
+        dataset_root_path=dataset_root_path,
+        output_dir=output_dir,
+        num_epochs=1000,
+        num_cuboids=16,
+        learning_rate=0.0005,
+        bsmin_k=22,
+        coverage_weight=0.1,
+        rotation_weight=0.01,
+        repulsion_weight=0.05,
+        dimension_weight=0.0,
+        num_surface_points=1000,
+        use_init=True
+    )
 
-    # # Variation B2
-    # print("** Running Variation B2 (repulsion_weight=0.1) **")
-    # run_experiment(
-    #     object_names=["dog"],
-    #     dataset_root_path=dataset_root_path,
-    #     output_dir=output_dir,
-    #     num_epochs=1000,
-    #     num_cuboids=16,
-    #     learning_rate=0.0005,
-    #     bsmin_k=22,
-    #     coverage_weight=0.1,
-    #     rotation_weight=0.01,
-    #     repulsion_weight=0.1,
-    #     dimension_weight=0.0,
-    #     num_surface_points=1000,
-    #     use_sdf_training=False,
-    #     use_init=True
-    # )
+    # Variation B2
+    print("** Running Variation B2 (repulsion_weight=0.1) **")
+    run_experiment(
+        object_names=["dog"],
+        dataset_root_path=dataset_root_path,
+        output_dir=output_dir,
+        num_epochs=1000,
+        num_cuboids=16,
+        learning_rate=0.0005,
+        bsmin_k=22,
+        coverage_weight=0.1,
+        rotation_weight=0.01,
+        repulsion_weight=0.1,
+        dimension_weight=0.0,
+        num_surface_points=1000,
+        use_init=True
+    )
 
 # ---------------------------
-    # Experiment 2: Hand - SDF Network On/Off
+    # Experiment 2: Hand - Clustering + PCA On/Off
     # ---------------------------
     print("\n========== Experiment 2: Hand - SDF Network On/Off ==========\n")
 
-    # # Baseline: use_sdf_net=False (no SDF net at all)
-    # print("** Running Baseline (use_sdf_net=False) **")
-    # run_experiment(
-    #     object_names=["hand"],
-    #     dataset_root_path=dataset_root_path,
-    #     output_dir=output_dir,
-    #     num_epochs=1000,
-    #     num_cuboids=5,
-    #     learning_rate=0.0001,
-    #     bsmin_k=22,
-    #     coverage_weight=0.0,
-    #     rotation_weight=0.0,
-    #     repulsion_weight=0.05,
-    #     dimension_weight=0.0,
-    #     num_surface_points=1000,
-    #     use_sdf_training=False,
-    #     use_init=True,
+    # Baseline: Clustering + PCA OFF
+    print("** Running Baseline (Clustering + PCA OFF) **")
+    run_experiment(
+        object_names=["hand"],
+        dataset_root_path=dataset_root_path,
+        output_dir=output_dir,
+        num_epochs=1000,
+        num_cuboids=5,
+        learning_rate=0.0001,
+        bsmin_k=22,
+        coverage_weight=0.0,
+        rotation_weight=0.0,
+        repulsion_weight=0.05,
+        dimension_weight=0.0,
+        num_surface_points=1000,
+        use_sdf_training=False,
+        use_init=True,
 
-    # )
+    )
 
-    # # Variation S1: use_sdf_net=True (SDF net available)
-    # print("** Running Variation S1 (use_sdf_net=True) **")
-    # run_experiment(
-    #     object_names=["hand"],
-    #     dataset_root_path=dataset_root_path,
-    #     output_dir=output_dir,
-    #     num_epochs=1000,
-    #     num_cuboids=5,
-    #     learning_rate=0.0001,
-    #     bsmin_k=22,
-    #     coverage_weight=0.0,
-    #     rotation_weight=0.0,
-    #     repulsion_weight=0.05,
-    #     dimension_weight=0.0,
-    #     num_surface_points=1000,
-    #     use_sdf_training=False,
-    #     use_init=False,
-    # )
+    # Variation S1: Clustering + PCA ON
+    print("** Running Variation S1 (Clustering + PCA ON) **")
+    run_experiment(
+        object_names=["hand"],
+        dataset_root_path=dataset_root_path,
+        output_dir=output_dir,
+        num_epochs=1000,
+        num_cuboids=5,
+        learning_rate=0.0001,
+        bsmin_k=22,
+        coverage_weight=0.0,
+        rotation_weight=0.0,
+        repulsion_weight=0.05,
+        dimension_weight=0.0,
+        num_surface_points=1000,
+        use_sdf_training=False,
+        use_init=False,
+    )
 
     # ---------------------------
     # Experiment 3: Pot - Coverage Loss Variation
@@ -315,7 +315,7 @@ if __name__ == "__main__":
     )
 
     # ---------------------------
-    # Experiment 3: Sofa - Dimension Loss Variation
+    # Experiment 4: Sofa - Dimension Loss Variation
     # ---------------------------
     print("\n========== Experiment 4: Sofa - Dimension Loss Variation ==========\n")
     # Baseline (dimension_weight=0.0)
@@ -369,7 +369,7 @@ if __name__ == "__main__":
         coverage_weight=0.3,
         rotation_weight=0.1,
         repulsion_weight=0.001,
-        dimension_weight=0.01,
+        dimension_weight=0.05,
         num_surface_points=1000,
         use_sdf_training=False,
         use_init=True
